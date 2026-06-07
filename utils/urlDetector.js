@@ -35,6 +35,8 @@ const PROVIDERS = {
     /hglamioz\.com/i,
     /streamhg\.com/i,
     /hgcloud\.(to|net|cc|me)/i,
+    /niramirus\.com/i,
+    /audinifer\.com/i,
   ],
   vidhide: [
     /vidhide\.com/i,
@@ -48,6 +50,7 @@ const PROVIDERS = {
     /hveembed\.com/i,
     /vsharea\.com/i,
     /minochinos\.com/i,
+    /callistanise\.com/i,
   ],
   filemoon: [
     /filemoon\.(sx|com|to)/i,
@@ -122,8 +125,8 @@ function extractVideoId(url, provider) {
       case 'vidhide':
       case 'filemoon':
       case 'earvids': {
-        const match = u.pathname.match(/\/[ev]\/([a-zA-Z0-9]+)/);
-        return match ? match[1] : u.pathname.split('/').filter(Boolean)[0];
+        const match = u.pathname.match(/\/(?:e|v|embed)\/([a-zA-Z0-9]+)/);
+        return match ? match[1] : u.pathname.split('/').filter(Boolean).pop();
       }
       case 'dailymotion': {
         const match = u.pathname.match(/\/video\/([a-zA-Z0-9]+)/);

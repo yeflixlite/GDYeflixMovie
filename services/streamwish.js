@@ -167,40 +167,40 @@ async function extract(url) {
 
   for (const testHost of uniqueHosts) {
       const testUrl = `https://${testHost}/e/${id}${u.search}`;
-      console.log(`[StreamWish] Probando espejo: ${testUrl}`);
+      console.log(`[StreamWish] Probando dominio: ${testUrl}`);
       try {
-          // Timeout ultra rápido (3.5s) para ignorar los que estén bloqueados por Cloudflare en Render
+          // Timeout de 6s para la carga
           const response = await fetchWithRetry(testUrl, {
               referer: 'https://www.google.com/',
               origin: `https://${testHost}`,
-              timeout: 3500 
+              timeout: 6000 
           }, 1);
 
           const testHtml = response.data;
 
-          // Verificamos si logramos obtener la página real del reproductor (ya sea en texto crudo o empaquetado con eval)
           if ((testHtml.includes('setup({') || testHtml.includes('eval(function')) && !testHtml.includes('Just a moment...') && !testHtml.includes('Page is loading')) {
-              console.log(`[StreamWish] ✅ ¡ÉXITO HTTP! Espejo limpio funcionó al instante: ${testHost}`);
+              console.log(`[StreamWish] ✅ ¡ÉXITO HTTP! Extracción exitosa desde: ${testHost}`);
               html = testHtml;
               finalOrigin = `https://${testHost}`;
               finalEmbedUrl = testUrl;
-              break; // Tenemos el HTML bueno, salimos del ciclo
+              break;
           }
       } catch (e) {
-          // Falló por bloqueo o timeout, probamos el siguiente espejo
+          console.warn(`[StreamWish] Fallo al probar ${testHost}:`, e.message);
       }
   }
 
-  // Si después de iterar por todos los espejos limpios no tenemos HTML válido, abortamos.
   if (!html) {
-      console.log(`[StreamWish] 🛡️ Todos los espejos limpios fallaron (o pidieron Cloudflare). Requiere Puppeteer.`);
-      throw new Error('Bloqueo Cloudflare total en espejos. Requiere Puppeteer.');
+      console.log(`[StreamWish] 🛡️ Falló la obtención del HTML. Requiere Puppeteer.`);
+      throw new Error('Bloqueo Cloudflare total o video no encontrado. Requiere Puppeteer.');
   }
 
   const scripts = extractScripts(html);
   const hostToLog = new URL(finalEmbedUrl).host;
   const host = hostToLog;
-  const origin = finalOrigin;
+  
+  // Siempre forzamos el referer a streamwish.to para la reproducción, tal como indicó el usuario.
+  const origin = 'https://streamwish.to';
   const search = u.search;
   
   console.log(`[StreamWish/${hostToLog}] 📄 HTML obtenido (${html.length} bytes), analizando...`);
@@ -216,7 +216,7 @@ async function extract(url) {
         videoUrl += (videoUrl.includes('?') ? '&' : '?') + u.search.substring(1);
     }
     console.log(`[StreamWish/${hostToLog}] ✅ Estrategia 1 (jwplayer setup) → ${videoUrl.substring(0, 80)}`);
-    return { videoUrl, type: guessType(videoUrl), referer: finalOrigin };
+    return { videoUrl, type: guessType(videoUrl), referer: origin };
   }
 
   /* ── Estrategia 2: file: "..." o file: '...' ────────────── */

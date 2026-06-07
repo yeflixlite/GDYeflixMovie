@@ -13,18 +13,20 @@ const { fetchWithRetry } = require('../utils/axiosClient');
 
 function normalizeUrl(rawUrl) {
     const u = new URL(rawUrl);
-    // VidHide suele usar /v/ o /e/ indistintamente, pero algunos clones fallan si fuerzas /e/
-    // Por lo tanto, mantenemos el path original si ya es /v/ o /e/
-    if (u.pathname.startsWith('/v/') || u.pathname.startsWith('/e/')) {
-        return rawUrl;
+    
+    // Buscar el ID del video en rutas comunes: /v/ID, /e/ID, /embed/ID
+    const match = u.pathname.match(/\/(?:v|e|embed)\/([a-zA-Z0-9]+)/);
+    if (match) {
+        // El usuario reportó que las rutas /embed/ o /e/ fallan, así que forzamos /v/
+        return `${u.origin}/v/${match[1]}${u.search}`;
     }
     
-    // Fallback
-    const match = u.pathname.match(/\/(?:v|e)\/([a-zA-Z0-9]+)/);
-    if (match) return `${u.origin}/v/${match[1]}${u.search}`;
-    
+    // Fallback: Si no hay ruta conocida, asumimos que el último segmento es el ID
     const segments = u.pathname.split('/').filter(Boolean);
-    if (segments.length) return `${u.origin}/v/${segments[0]}${u.search}`;
+    if (segments.length) {
+        const id = segments.pop(); // Tomar el último segmento como ID
+        return `${u.origin}/v/${id}${u.search}`;
+    }
 
     return rawUrl;
 }
