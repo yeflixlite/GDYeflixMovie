@@ -25,6 +25,8 @@ function createClient(extraHeaders = {}, referer = '', origin = '') {
       ...getBrowserHeaders(referer, origin),
       ...extraHeaders,
     },
+    httpAgent: extraHeaders.httpAgent || undefined,
+    httpsAgent: extraHeaders.httpsAgent || undefined,
     // Permite cualquier código de estado para manejarlos manualmente
     validateStatus: () => true,
   });
@@ -49,6 +51,8 @@ async function fetchWithRetry(url, options = {}, retries = 3) {
       const response = await client.get(url, {
         responseType: options.responseType || 'text',
         timeout: options.timeout || 30_000, // Custom timeout
+        httpsAgent: options.httpsAgent || undefined,
+        httpAgent: options.httpAgent || undefined,
       });
       return response;
     } catch (err) {

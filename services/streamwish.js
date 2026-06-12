@@ -22,6 +22,17 @@
 
 const cheerio            = require('cheerio');
 const { fetchWithRetry } = require('../utils/axiosClient');
+const https = require('https');
+const http = require('http');
+
+// Keep-alive agents para conexiones más rápidas a espejos
+const httpsAgent = new https.Agent({ keepAlive: true });
+const httpAgent = new http.Agent({ keepAlive: true });
+
+// Caché en memoria para evitar volver a extraer (exclusivo para URLs resueltas válidas)
+const extractionCache = new Map();
+// Tiempo de expiración de la caché local: 60 minutos (para evitar caducidad de tokens m3u8)
+const CACHE_TTL = 1000 * 60 * 60;
 
 /* ── Dominios reconocidos de la familia StreamWish ────────── */
 const STREAMWISH_DOMAINS = [
@@ -152,6 +163,14 @@ async function extract(url) {
   let u = new URL(embedUrl);
   const id = u.pathname.split('/').filter(Boolean).pop();
 
+  // CHECK CACHE
+  const cacheKey = id + u.search;
+  const cached = extractionCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    console.log(`[StreamWish] ⚡ Resultado obtenido de CACHE en memoria para ID: ${id}`);
+    return cached.result;
+  }
+
   // Espejos limpios sin Cloudflare agresivo proporcionados por el usuario
   const CLEAN_MIRRORS = ['playnixes.com', 'hglamioz.com', 'medixiru.com'];
   
@@ -159,40 +178,49 @@ async function extract(url) {
   const hostsToTry = [u.host, ...CLEAN_MIRRORS];
   const uniqueHosts = [...new Set(hostsToTry)];
 
+  console.log(`[StreamWish] 🔍 Iniciando búsqueda rápida concurrente (Race) en espejos limpios...`);
+
+  // Lanzar peticiones concurrentes a todos los espejos para un Failover rápido
+  const fetchPromises = uniqueHosts.map(async (testHost) => {
+      const testUrl = `https://${testHost}/e/${id}${u.search}`;
+      
+      const response = await fetchWithRetry(testUrl, {
+          referer: 'https://www.google.com/',
+          origin: `https://${testHost}`,
+          timeout: 4500, // Timeout estricto de 4.5s
+          httpsAgent,
+          httpAgent
+      }, 1); // 1 solo intento por espejo en la carrera
+
+      const testHtml = response.data;
+
+      // Verificamos si el HTML es válido
+      if ((testHtml.includes('setup({') || testHtml.includes('eval(function') || testHtml.includes('sources:[')) && 
+          !testHtml.includes('Just a moment...') && !testHtml.includes('Page is loading')) {
+          return {
+              html: testHtml,
+              finalOrigin: `https://${testHost}`,
+              finalEmbedUrl: testUrl,
+              host: testHost
+          };
+      }
+      throw new Error(`HTML no válido en espejo ${testHost}`);
+  });
+
   let html = '';
   let finalOrigin = '';
-  let finalEmbedUrl = embedUrl;
+  let finalEmbedUrl = '';
 
-  console.log(`[StreamWish] 🔍 Iniciando búsqueda rápida por HTTP en espejos limpios...`);
-
-  for (const testHost of uniqueHosts) {
-      const testUrl = `https://${testHost}/e/${id}${u.search}`;
-      console.log(`[StreamWish] Probando dominio: ${testUrl}`);
-      try {
-          // Timeout de 6s para la carga
-          const response = await fetchWithRetry(testUrl, {
-              referer: 'https://www.google.com/',
-              origin: `https://${testHost}`,
-              timeout: 6000 
-          }, 1);
-
-          const testHtml = response.data;
-
-          if ((testHtml.includes('setup({') || testHtml.includes('eval(function')) && !testHtml.includes('Just a moment...') && !testHtml.includes('Page is loading')) {
-              console.log(`[StreamWish] ✅ ¡ÉXITO HTTP! Extracción exitosa desde: ${testHost}`);
-              html = testHtml;
-              finalOrigin = `https://${testHost}`;
-              finalEmbedUrl = testUrl;
-              break;
-          }
-      } catch (e) {
-          console.warn(`[StreamWish] Fallo al probar ${testHost}:`, e.message);
-      }
-  }
-
-  if (!html) {
-      console.log(`[StreamWish] 🛡️ Falló la obtención del HTML. Requiere Puppeteer.`);
-      throw new Error('Bloqueo Cloudflare total o video no encontrado. Requiere Puppeteer.');
+  try {
+      // Promise.any devuelve el primer espejo que responda exitosamente (el más rápido)
+      const fastestResult = await Promise.any(fetchPromises);
+      html = fastestResult.html;
+      finalOrigin = fastestResult.finalOrigin;
+      finalEmbedUrl = fastestResult.finalEmbedUrl;
+      console.log(`[StreamWish] ✅ ¡ÉXITO HTTP! Espejo más rápido: ${fastestResult.host}`);
+  } catch (err) {
+      console.log(`[StreamWish] 🛡️ Falló la obtención concurrente. Todos los espejos bloqueados o caídos.`);
+      throw new Error('Bloqueo Cloudflare total o video no encontrado en ningún espejo.');
   }
 
   const scripts = extractScripts(html);
@@ -216,7 +244,9 @@ async function extract(url) {
         videoUrl += (videoUrl.includes('?') ? '&' : '?') + u.search.substring(1);
     }
     console.log(`[StreamWish/${hostToLog}] ✅ Estrategia 1 (jwplayer setup) → ${videoUrl.substring(0, 80)}`);
-    return { videoUrl, type: guessType(videoUrl), referer: origin };
+    const result = { videoUrl, type: guessType(videoUrl), referer: origin };
+    extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
   /* ── Estrategia 2: file: "..." o file: '...' ────────────── */
@@ -237,7 +267,9 @@ async function extract(url) {
           videoUrl += (videoUrl.includes('?') ? '&' : '?') + search.substring(1);
       }
       console.log(`[StreamWish/${host}] ✅ Estrategia 2 (file:) → ${videoUrl.substring(0, 80)}`);
-      return { videoUrl, type: guessType(videoUrl), referer: origin };
+      const result = { videoUrl, type: guessType(videoUrl), referer: origin };
+      extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+      return result;
     }
   }
 
@@ -249,7 +281,9 @@ async function extract(url) {
         videoUrl += (videoUrl.includes('?') ? '&' : '?') + search.substring(1);
     }
     console.log(`[StreamWish/${host}] ✅ Estrategia 3 (eval/atob) → ${videoUrl.substring(0, 80)}`);
-    return { videoUrl, type: guessType(videoUrl), referer: origin };
+    const result = { videoUrl, type: guessType(videoUrl), referer: origin };
+    extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
   /* ── Estrategia 4: sources array completo ───────────────── */
@@ -260,7 +294,9 @@ async function extract(url) {
         videoUrl += (videoUrl.includes('?') ? '&' : '?') + search.substring(1);
     }
     console.log(`[StreamWish/${host}] ✅ Estrategia 4 (sources[]) → ${videoUrl.substring(0, 80)}`);
-    return { videoUrl, type: guessType(videoUrl), referer: origin };
+    const result = { videoUrl, type: guessType(videoUrl), referer: origin };
+    extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
   /* ── Estrategia 5: cualquier URL con /hls/ o .txt en el HTML */
@@ -271,7 +307,9 @@ async function extract(url) {
         videoUrl += (videoUrl.includes('?') ? '&' : '?') + search.substring(1);
     }
     console.log(`[StreamWish/${host}] ✅ Estrategia 5 (HLS en HTML) → ${videoUrl.substring(0, 80)}`);
-    return { videoUrl, type: 'm3u8', referer: origin };
+    const result = { videoUrl, type: 'm3u8', referer: origin };
+    extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
   /* ── Estrategia 6: cualquier m3u8 en todo el documento ──── */
@@ -282,7 +320,9 @@ async function extract(url) {
         videoUrl += (videoUrl.includes('?') ? '&' : '?') + search.substring(1);
     }
     console.log(`[StreamWish/${host}] ✅ Estrategia 6 (m3u8 en HTML) → ${videoUrl.substring(0, 80)}`);
-    return { videoUrl, type: 'm3u8', referer: origin };
+    const result = { videoUrl, type: 'm3u8', referer: origin };
+    extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+    return result;
   }
 
   /* ── No encontrado ─────────────────────────────────────── */
