@@ -8,6 +8,17 @@
 'use strict';
 
 const { fetchWithRetry } = require('../utils/axiosClient');
+const https = require('https');
+const http = require('http');
+
+// Keep-alive agents para conexiones rápidas a espejos
+const httpsAgent = new https.Agent({ keepAlive: true });
+const httpAgent = new http.Agent({ keepAlive: true });
+
+// Caché en memoria para evitar volver a extraer URLs resolubles
+const extractionCache = new Map();
+// TTL de caché: 60 minutos
+const CACHE_TTL = 1000 * 60 * 60;
 
 /* ── Dominios reconocidos de VOE ────────── */
 const VOE_DOMAINS = [
@@ -68,6 +79,14 @@ async function extract(url) {
     let u = new URL(embedUrl);
     const id = u.pathname.split('/').filter(Boolean).pop();
 
+    // CACHE CHECK
+    const cacheKey = id + u.search;
+    const cached = extractionCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[VOE] ⚡ Resultado obtenido de CACHE en memoria para ID: ${id}`);
+        return cached.result;
+    }
+
     // Espejos limpios de VOE y nuevos dominios detectados
     const CLEAN_MIRRORS = [
         'timmaybealready.com', 
@@ -82,48 +101,55 @@ async function extract(url) {
     let hostsToTry = [u.host, ...CLEAN_MIRRORS];
     let uniqueHosts = [...new Set(hostsToTry)];
 
+    console.log(`[VOE] 🔍 Iniciando búsqueda rápida concurrente (Race) en espejos...`);
+
+    const fetchPromises = uniqueHosts.map(async (testHost) => {
+        const testUrl = `https://${testHost}/e/${id}${u.search}`;
+        
+        const response = await fetchWithRetry(testUrl, {
+            referer: 'https://google.com/',
+            origin: `https://${testHost}`,
+            timeout: 5000,
+            httpsAgent,
+            httpAgent
+        }, 1);
+
+        let testHtml = response.data;
+
+        // DETECCIÓN DE REDIRECCIÓN POR JS (NUEVA ESTRATEGIA)
+        const jsRedirect = testHtml.match(/window\.location\.href\s*=\s*['"](https?:\/\/[^'"]+)['"]/i);
+        if (jsRedirect && !testHtml.includes('sources') && !testHtml.includes('voe-video')) {
+            const newUrl = jsRedirect[1];
+            console.log(`[VOE] ↪️ Siguiendo redirección JS: ${newUrl}`);
+            const redirRes = await fetchWithRetry(newUrl, { referer: testUrl, httpsAgent, httpAgent });
+            testHtml = redirRes.data;
+            const newHost = new URL(newUrl).host;
+            if (!uniqueHosts.includes(newHost)) uniqueHosts.push(newHost);
+        }
+
+        // Verificamos si es una página real de video
+        if ((testHtml.includes('sources') || testHtml.includes('voe-video') || testHtml.includes('decodeVoeConfig') || testHtml.includes('application/json') || testHtml.includes('decodeURI(')) && !testHtml.includes('Just a moment...')) {
+            return {
+                html: testHtml,
+                finalOrigin: `https://${testHost}`,
+                finalEmbedUrl: testUrl,
+                host: testHost
+            };
+        }
+        throw new Error(`HTML no válido en espejo ${testHost}`);
+    });
+
     let html = '';
     let finalOrigin = '';
-    let finalEmbedUrl = embedUrl;
+    let finalEmbedUrl = '';
 
-    console.log(`[VOE] 🔍 Iniciando búsqueda rápida por HTTP en espejos...`);
-
-    for (const testHost of uniqueHosts) {
-        const testUrl = `https://${testHost}/e/${id}${u.search}`;
-        try {
-            const response = await fetchWithRetry(testUrl, {
-                referer: 'https://google.com/',
-                origin: `https://${testHost}`,
-                timeout: 5000
-            }, 1);
-
-            let testHtml = response.data;
-
-            // DETECCIÓN DE REDIRECCIÓN POR JS (NUEVA ESTRATEGIA)
-            const jsRedirect = testHtml.match(/window\.location\.href\s*=\s*['"](https?:\/\/[^'"]+)['"]/i);
-            if (jsRedirect && !testHtml.includes('sources') && !testHtml.includes('voe-video')) {
-                const newUrl = jsRedirect[1];
-                console.log(`[VOE] ↪️ Siguiendo redirección JS: ${newUrl}`);
-                const redirRes = await fetchWithRetry(newUrl, { referer: testUrl });
-                testHtml = redirRes.data;
-                const newHost = new URL(newUrl).host;
-                if (!uniqueHosts.includes(newHost)) uniqueHosts.push(newHost);
-            }
-
-            // Verificamos si es una página real de video
-            if ((testHtml.includes('sources') || testHtml.includes('voe-video') || testHtml.includes('decodeVoeConfig') || testHtml.includes('application/json') || testHtml.includes('decodeURI(')) && !testHtml.includes('Just a moment...')) {
-                console.log(`[VOE] ✅ ¡ÉXITO HTTP! Host funcional: ${testHost}`);
-                html = testHtml;
-                finalOrigin = `https://${testHost}`;
-                finalEmbedUrl = testUrl;
-                break;
-            }
-        } catch (e) {
-            // Siguiente host
-        }
-    }
-
-    if (!html) {
+    try {
+        const fastestResult = await Promise.any(fetchPromises);
+        html = fastestResult.html;
+        finalOrigin = fastestResult.finalOrigin;
+        finalEmbedUrl = fastestResult.finalEmbedUrl;
+        console.log(`[VOE] ✅ ¡ÉXITO HTTP! Host más rápido: ${fastestResult.host}`);
+    } catch (err) {
         throw new Error(`Bloqueo total en VOE (${u.host}). Los espejos no respondieron con contenido válido.`);
     }
 
@@ -204,11 +230,13 @@ async function extract(url) {
         }
 
         console.log(`[VOE/${host}] ✅ Extraído: ${finalVideoUrl.substring(0, 80)}...`);
-        return { 
+        const result = { 
             videoUrl: finalVideoUrl, 
             type: finalVideoUrl.includes('.m3u8') ? 'm3u8' : 'mp4', 
             referer: origin 
         };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
     }
 
     throw new Error(`No se pudo extraer el enlace de video de VOE (${host}). Es posible que el sitio haya cambiado su estructura.`);
