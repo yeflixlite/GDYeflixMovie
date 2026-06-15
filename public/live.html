@@ -276,8 +276,16 @@
         function loadShakaPlayer() {
             return new Promise((resolve, reject) => {
                 if (window.shaka) return resolve();
+                
+                // Cargar CSS de Shaka UI
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = 'https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/controls.min.css';
+                document.head.appendChild(link);
+
+                // Cargar JS de Shaka UI (incluye el core)
                 const script = document.createElement('script');
-                script.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js";
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.js";
                 script.onload = resolve;
                 script.onerror = reject;
                 document.head.appendChild(script);
@@ -290,7 +298,25 @@
                 shaka.polyfill.installAll();
                 
                 if (shaka.Player.isBrowserSupported()) {
+                    // Quitar controles nativos feos y rotos
+                    video.removeAttribute('controls');
+                    
                     const player = new shaka.Player(video);
+                    
+                    // Inicializar interfaz gráfica bonita (Shaka UI Overlay)
+                    const videoContainer = document.querySelector('.player-wrapper');
+                    const ui = new shaka.ui.Overlay(player, videoContainer, video);
+                    
+                    // Configurar UI para ocultar los números gigantes de tiempo
+                    ui.configure({
+                        controlPanelElements: [
+                            'play_pause', 
+                            'spacer', // Empuja lo demás a la derecha
+                            'mute', 
+                            'volume', 
+                            'fullscreen'
+                        ]
+                    });
                     
                     // Configurar DRM ClearKey si fue enviado por el backend
                     if (drm && drm.keyId && drm.key) {
