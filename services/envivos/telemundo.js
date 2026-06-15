@@ -17,8 +17,8 @@ async function extract() {
 
     return {
         videoUrl,
-        type: 'm3u8',
-        referer: 'https://www.tvguatemalaenvivo.com/'
+        type: 'iframe',
+        referer: 'https://tvtvhd.com/'
     };
 }
 
