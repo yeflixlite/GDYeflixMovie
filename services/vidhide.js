@@ -10,6 +10,17 @@
 
 const cheerio            = require('cheerio');
 const { fetchWithRetry } = require('../utils/axiosClient');
+const https = require('https');
+const http = require('http');
+
+// Keep-alive agents para conexiones rápidas a espejos
+const httpsAgent = new https.Agent({ keepAlive: true });
+const httpAgent = new http.Agent({ keepAlive: true });
+
+// Caché en memoria para evitar volver a extraer URLs resolubles
+const extractionCache = new Map();
+// TTL de caché: 60 minutos
+const CACHE_TTL = 1000 * 60 * 60;
 
 function normalizeUrl(rawUrl) {
     const u = new URL(rawUrl);
@@ -98,33 +109,92 @@ async function extract(url) {
     const origin   = u.origin;
     const host     = u.hostname;
     const search   = u.search;
+    const id       = u.pathname.split('/').filter(Boolean).pop();
 
-    console.log(`[VidHide/${host}] 🔍 Accediendo a: ${embedUrl}`);
+    // CACHE CHECK
+    const cacheKey = id + search;
+    const cached = extractionCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+        console.log(`[VidHide] ⚡ Resultado obtenido de CACHE en memoria para ID: ${id}`);
+        return cached.result;
+    }
 
-    let response = await fetchWithRetry(embedUrl, {
-        referer : 'https://google.com/',
-        origin,
-        timeout: 15000
+    // Espejos limpios de VidHide
+    const CLEAN_MIRRORS = [
+        'minochinos.com',
+        'callistanise.com',
+        'vsharea.com',
+        'vidhidepro.com',
+        'vidhide.com'
+    ];
+    
+    let hostsToTry = [host, ...CLEAN_MIRRORS];
+    let uniqueHosts = [...new Set(hostsToTry)];
+
+    console.log(`[VidHide] 🔍 Iniciando búsqueda rápida concurrente (Race) en espejos...`);
+
+    const fetchPromises = uniqueHosts.map(async (testHost) => {
+        const testUrl = `https://${testHost}/v/${id}${search}`;
+        
+        let response = await fetchWithRetry(testUrl, {
+            referer : 'https://google.com/',
+            origin: `https://${testHost}`,
+            timeout: 5000,
+            httpsAgent,
+            httpAgent
+        }, 1);
+
+        let testHtml = response.data;
+
+        // Bypass de cookies (shell de carga o redirección)
+        if (testHtml.length < 2000 && (testHtml.includes('Page is loading') || testHtml.includes('Redirecting'))) {
+            const cookies = response.headers['set-cookie'];
+            response = await fetchWithRetry(testUrl, {
+                referer: testUrl,
+                origin: `https://${testHost}`,
+                headers: { 'Cookie': cookies ? cookies.join('; ') : '' },
+                timeout: 5000,
+                httpsAgent,
+                httpAgent
+            }, 1);
+            testHtml = response.data;
+        }
+
+        // Verificamos si es un HTML válido
+        if ((testHtml.includes('setup({') || testHtml.includes('eval(function') || testHtml.includes('sources:[')) && !testHtml.includes('Just a moment...')) {
+            return {
+                html: testHtml,
+                finalOrigin: `https://${testHost}`,
+                finalEmbedUrl: testUrl,
+                host: testHost
+            };
+        }
+        throw new Error(`HTML no válido en espejo ${testHost}`);
     });
 
-    let html = response.data;
+    let html = '';
+    let finalOrigin = '';
+    let finalEmbedUrl = '';
 
-    if (html.length < 2000 && (html.includes('Page is loading') || html.includes('Redirecting'))) {
-        console.log(`[VidHide/${host}] ⏳ Detectada shell de carga, intentando bypass de cookies...`);
-        const cookies = response.headers['set-cookie'];
-        response = await fetchWithRetry(embedUrl, {
-            referer: embedUrl,
-            origin,
-            headers: { 'Cookie': cookies ? cookies.join('; ') : '' }
-        });
-        html = response.data;
+    try {
+        const fastestResult = await Promise.any(fetchPromises);
+        html = fastestResult.html;
+        finalOrigin = fastestResult.finalOrigin;
+        finalEmbedUrl = fastestResult.finalEmbedUrl;
+        console.log(`[VidHide] ✅ ¡ÉXITO HTTP! Host más rápido: ${fastestResult.host}`);
+    } catch (err) {
+        throw new Error(`Bloqueo total en VidHide (${host}). Los espejos no respondieron con contenido válido.`);
     }
 
     const scripts = extractScripts(html);
     console.log(`[VidHide/${host}] 📄 HTML obtenido (${html.length} bytes)`);
 
     let m = scripts.match(/\.setup\s*\(\s*\{[^}]*?sources\s*:\s*\[\s*\{[^}]*?file\s*:\s*["']([^"']+)["']/is);
-    if (m && m[1].startsWith('http')) return { videoUrl: addTokens(m[1], search), type: guessType(m[1]), referer: origin };
+    if (m && m[1].startsWith('http')) {
+        const result = { videoUrl: addTokens(m[1], search), type: guessType(m[1]), referer: finalOrigin };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
+    }
 
     const filePatterns = [
         /file\s*:\s*["'](https?:\/\/[^"']*\.m3u8[^"']*)/i,
@@ -136,23 +206,47 @@ async function extract(url) {
 
     for (const pat of filePatterns) {
         m = scripts.match(pat) || html.match(pat);
-        if (m && m[1]) return { videoUrl: addTokens(m[1], search), type: guessType(m[1]), referer: origin };
+        if (m && m[1]) {
+            const result = { videoUrl: addTokens(m[1], search), type: guessType(m[1]), referer: finalOrigin };
+            extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+            return result;
+        }
     }
 
     const evalDecoded = tryDecodeEval(scripts);
-    if (evalDecoded) return { videoUrl: addTokens(evalDecoded, search), type: guessType(evalDecoded), referer: origin };
+    if (evalDecoded) {
+        const result = { videoUrl: addTokens(evalDecoded, search), type: guessType(evalDecoded), referer: finalOrigin };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
+    }
 
     const unpacked = tryUnpack(scripts);
-    if (unpacked) return { videoUrl: addTokens(unpacked, search), type: guessType(unpacked), referer: origin };
+    if (unpacked) {
+        const result = { videoUrl: addTokens(unpacked, search), type: guessType(unpacked), referer: finalOrigin };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
+    }
 
     m = scripts.match(/sources\s*:\s*\[\s*\{[^[\]]*?file\s*:\s*["'](https?:\/\/[^"']+)/is);
-    if (m && m[1]) return { videoUrl: addTokens(m[1], search), type: guessType(m[1]), referer: origin };
+    if (m && m[1]) {
+        const result = { videoUrl: addTokens(m[1], search), type: guessType(m[1]), referer: finalOrigin };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
+    }
 
     const hlsInHtml = html.match(/https?:\/\/[^\s"'<>]*(?:\/hls\/|master\.txt|playlist\.txt)[^\s"'<>]*/i);
-    if (hlsInHtml) return { videoUrl: addTokens(hlsInHtml[0], search), type: 'm3u8', referer: origin };
+    if (hlsInHtml) {
+        const result = { videoUrl: addTokens(hlsInHtml[0], search), type: 'm3u8', referer: finalOrigin };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
+    }
 
     const anyM3u8 = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i);
-    if (anyM3u8) return { videoUrl: addTokens(anyM3u8[0], search), type: 'm3u8', referer: origin };
+    if (anyM3u8) {
+        const result = { videoUrl: addTokens(anyM3u8[0], search), type: 'm3u8', referer: finalOrigin };
+        extractionCache.set(cacheKey, { timestamp: Date.now(), result });
+        return result;
+    }
 
     throw new Error(`No se pudo extraer el enlace de video de VidHide (${host}).`);
 }
