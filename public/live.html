@@ -237,13 +237,36 @@
                 const remaining = Math.max(0, 2000 - elapsed);
                 
                 setTimeout(() => {
-                    setupHls(data.proxyUrl);
+                    if (data.type === 'iframe') {
+                        setupIframe(data.videoUrl);
+                    } else {
+                        setupHls(data.proxyUrl);
+                    }
                 }, remaining);
 
             } catch (err) {
                 console.error(err);
                 showError("Fallo al conectar con la señal.");
             }
+        }
+
+        function setupIframe(url) {
+            video.style.display = 'none'; // Ocultar el tag de video
+            const iframe = document.createElement('iframe');
+            iframe.src = url;
+            iframe.style.width = '100%';
+            iframe.style.height = '100%';
+            iframe.style.border = 'none';
+            iframe.style.position = 'absolute';
+            iframe.style.top = '0';
+            iframe.style.left = '0';
+            iframe.style.zIndex = '10'; // Debajo del loader y badge
+            
+            iframe.setAttribute('allowfullscreen', 'true');
+            iframe.setAttribute('scrolling', 'no');
+            
+            document.querySelector('.player-wrapper').appendChild(iframe);
+            hideLoader();
         }
 
         function setupHls(url) {
