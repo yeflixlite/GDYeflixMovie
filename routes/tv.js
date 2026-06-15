@@ -42,7 +42,8 @@ router.get('/extract', async (req, res) => {
             videoUrl: result.videoUrl,
             proxyUrl: proxyUrl,
             type: result.type,
-            provider: id
+            provider: id,
+            drm: result.drm || null
         });
 
     } catch (err) {

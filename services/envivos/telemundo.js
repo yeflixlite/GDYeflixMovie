@@ -11,13 +11,19 @@
  */
 async function extract() {
     const channelId = 'telemundo';
-    const videoUrl = 'https://tvtvhd.com/mpd/drm.php?url=aHR0cHM6Ly9saXZlLW9uZWFwcC1wcmQtbmV3cy5ha2FtYWl6ZWQubmV0L0NvbnRlbnQvQ01BRl9PTDItQ1RSLTRzL0xpdmUvY2hhbm5lbChXTkpVKS9tYXN0ZXIubXBk&k=YzcxZmU3YmM4MmYwMzdjNmFmMjFmZDI5OWQ2MzQxYjA6MTMyMjNjOTg4ODZmZjQzZDNjNWYyNzFlZWI0NTdjYzY=';
+    // URL directa extraída desde tvtvhd.com para uso nativo
+    const videoUrl = 'https://live-oneapp-prd-news.akamaized.net/Content/CMAF_OL2-CTR-4s/Live/channel(WNJU)/master.mpd';
+    const drm = {
+        keyId: 'c71fe7bc82f037c6af21fd299d6341b0',
+        key: '13223c98886ff43d3c5f271eeb457cc6'
+    };
 
-    console.log(`[TV/${channelId}] ✅ Fuente estática detectada.`);
+    console.log(`[TV/${channelId}] ✅ Fuente DASH detectada con DRM.`);
 
     return {
         videoUrl,
-        type: 'iframe',
+        type: 'dash',
+        drm,
         referer: 'https://tvtvhd.com/'
     };
 }
