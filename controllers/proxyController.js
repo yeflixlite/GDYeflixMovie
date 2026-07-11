@@ -11,12 +11,14 @@
 const axios               = require('axios');
 const http                = require('http');
 const https               = require('https');
+const zlib                = require('zlib');
 const { getMediaHeaders } = require('../utils/browserHeaders');
 
 // CONFIGURACIÓN DE AHORRO DE BANDA
 // Si es 'false', los segmentos (.ts) se cargarán directo del CDN original.
 // Esto ahorra el 95% del ancho de banda del servidor.
 const PROXY_SEGMENTS = process.env.PROXY_SEGMENTS === 'true'; 
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 // Lista de dominios que permiten carga directa (CORS abierto o sin Referer estricto)
 const DIRECT_DOMAINS = [
@@ -28,13 +30,38 @@ const DIRECT_DOMAINS = [
 ];
 
 // Agentes con Keep-Alive para rendimiento
-const httpAgent = new http.Agent({ keepAlive: true });
-const httpsAgent = new https.Agent({ keepAlive: true });
+const httpAgent  = new http.Agent({ keepAlive: true, maxSockets: 50 });
+const httpsAgent = new https.Agent({ keepAlive: true, maxSockets: 50 });
 
 const AD_BLOCKLIST = [
     'tiktokcdn.com', 'doubleclick.net', 'adnxs.com', 'advertising.com',
     'quantserve.com', 'scorecardresearch.com', 'clisky.xyz', 'trbt.it'
 ];
+
+// ── MEJORA 2: Cache en memoria para M3U8 maestros ────────────
+// TTL de 8 segundos: el suficiente para absorber picos de usuarios,
+// sin servir listas tan viejas que tengan segmentos expirados.
+const m3u8Cache = new Map();
+const M3U8_CACHE_TTL = 8_000; // 8 segundos
+
+function getCached(key) {
+    const entry = m3u8Cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > M3U8_CACHE_TTL) {
+        m3u8Cache.delete(key);
+        return null;
+    }
+    return entry.body;
+}
+
+function setCache(key, body) {
+    // Limitar el tamaño del caché para no agotar la RAM de Vercel
+    if (m3u8Cache.size > 100) {
+        const firstKey = m3u8Cache.keys().next().value;
+        m3u8Cache.delete(firstKey);
+    }
+    m3u8Cache.set(key, { body, ts: Date.now() });
+}
 
 /**
  * Resuelve URLs relativas conservando los Query Params de la base.
@@ -57,7 +84,7 @@ function resolveUrl(target, base) {
 
   // SI LA BASE TIENE PARÁMETROS (?, t=, s=, e=) Y EL TARGET NO, SE LOS PASAMOS
   if (baseUrl.search) {
-    const baseParams = baseUrl.searchParams;
+    const baseParams   = baseUrl.searchParams;
     const targetParams = resolved.searchParams;
     
     // Parámetros críticos de StreamWish/Filemoon
@@ -116,28 +143,25 @@ function rewriteM3u8(content, originalUrl, proxyBase, referer) {
     (match, attributes) => {
       let newAttributes = attributes;
 
-      // 1. Leer la resolución REAL del atributo antes de tocarlo (ej: RESOLUTION=1280x720)
-      let res = '1280x720';
+      let res  = '1280x720';
       let name = '"720p"';
       const resMatch = attributes.match(/RESOLUTION=(\d+)x(\d+)/i);
       if (resMatch) {
         const height = parseInt(resMatch[2]);
         res = `${resMatch[1]}x${resMatch[2]}`;
-        if (height >= 2160)      name = '"4K"';
+        if      (height >= 2160) name = '"4K"';
         else if (height >= 1080) name = '"1080p"';
         else if (height >= 720)  name = '"720p"';
         else if (height >= 480)  name = '"480p"';
         else if (height >= 360)  name = '"360p"';
         else                     name = `"${height}p"`;
       } else {
-        // Fallback: inferir desde texto si no hay RESOLUTION= numérico
-        if (attributes.includes('1080p') || attributes.includes('1920x1080'))      { res = '1920x1080'; name = '"1080p"'; }
-        else if (attributes.includes('480p') || attributes.includes('854x480'))    { res = '854x480';   name = '"480p"'; }
-        else if (attributes.includes('360p') || attributes.includes('640x360'))    { res = '640x360';   name = '"360p"'; }
-        else if (attributes.includes('4K')   || attributes.includes('2160p'))      { res = '3840x2160'; name = '"4K"'; }
+        if      (attributes.includes('1080p') || attributes.includes('1920x1080')) { res = '1920x1080'; name = '"1080p"'; }
+        else if (attributes.includes('480p')  || attributes.includes('854x480'))   { res = '854x480';   name = '"480p"'; }
+        else if (attributes.includes('360p')  || attributes.includes('640x360'))   { res = '640x360';   name = '"360p"'; }
+        else if (attributes.includes('4K')    || attributes.includes('2160p'))     { res = '3840x2160'; name = '"4K"'; }
       }
 
-      // 2. Limpiar etiquetas existentes (rotas o correctas) y reinsertar limpias
       newAttributes = newAttributes.replace(/,?RESOLUTION=[^\s,]+/gi, '');
       newAttributes = newAttributes.replace(/,?NAME=[^\s,]+/gi, '');
       newAttributes += `,RESOLUTION=${res},NAME=${name}`;
@@ -149,13 +173,34 @@ function rewriteM3u8(content, originalUrl, proxyBase, referer) {
   return rewritten;
 }
 
+// ── MEJORA 5: Fetch con reintento ────────────────────────────
+async function fetchUpstream(url, headers, timeout) {
+    const config = {
+        headers,
+        responseType: 'stream',
+        httpAgent,
+        httpsAgent,
+        maxRedirects: 10,
+        timeout,
+        validateStatus: (status) => status < 400,
+    };
+
+    try {
+        return await axios.get(url, config);
+    } catch (err) {
+        // Un solo reintento automático antes de rendirse
+        if (!IS_PROD) console.log(`[Proxy] ⚠️ Reintentando: ${url.substring(0, 60)}...`);
+        return await axios.get(url, config);
+    }
+}
+
 async function proxyHandler(req, res, next) {
   try {
     const { url, referer = '', forceM3u8 = '0' } = req.query;
 
     if (!url) return res.status(400).end();
 
-    const decodedUrl = decodeURIComponent(url);
+    const decodedUrl     = decodeURIComponent(url);
     const decodedReferer = referer ? decodeURIComponent(referer) : '';
     
     let origin = '';
@@ -164,18 +209,29 @@ async function proxyHandler(req, res, next) {
     const isAd = AD_BLOCKLIST.some(domain => decodedUrl.includes(domain));
     if (isAd) return res.status(404).end();
 
-    // Log para depuración de rutas (solo para m3u8)
-    if (decodedUrl.includes('.m3u8') || forceM3u8 === '1') {
+    const isM3u8Request = decodedUrl.includes('.m3u') ||
+                          forceM3u8 === '1';
+
+    // ── MEJORA 4: Log solo en desarrollo ─────────────────────
+    if (!IS_PROD && isM3u8Request) {
        console.log(`[Proxy] 📄 Manifest: ${decodedUrl.substring(0, 70)}...`);
     }
 
-    // LOGICA DE REFERER: Muchos CDNs (como medixiru, dohaxe) requieren que el referer
-    // sea el mismo dominio del video o el dominio embed original.
+    // ── MEJORA 2: Servir desde caché si existe ────────────────
+    if (isM3u8Request) {
+        const cached = getCached(decodedUrl);
+        if (cached) {
+            res.status(200);
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            res.setHeader('X-Cache', 'HIT');
+            return sendCompressed(req, res, cached);
+        }
+    }
+
+    // LOGICA DE REFERER
     let targetOrigin = '';
     try { targetOrigin = new URL(decodedUrl).origin; } catch {}
-    
-    // Si no se pasó un referer explícito, usamos el origin del video como fallback
-    // Esto suele saltarse protecciones de Hotlink.
     const effectiveReferer = decodedReferer || targetOrigin;
 
     const headers = getMediaHeaders(effectiveReferer, targetOrigin);
@@ -183,17 +239,17 @@ async function proxyHandler(req, res, next) {
       headers['Range'] = req.headers.range;
     }
 
-    const upstream = await axios.get(decodedUrl, {
-      headers,
-      responseType: 'stream',
-      httpAgent,
-      httpsAgent,
-      maxRedirects: 10,
-      timeout: 20_000, 
-      validateStatus: (status) => status < 400,
-    });
+    // ── MEJORA 3: Timeout diferenciado ───────────────────────
+    // M3U8/playlists son archivos pequeños → fallar rápido (8s)
+    // Segmentos de video pueden ser pesados → más tiempo (15s)
+    const isSegment = decodedUrl.includes('.ts') || 
+                      decodedUrl.includes('.m4s') ||
+                      decodedUrl.includes('.mp4');
+    const timeout = isM3u8Request ? 8_000 : (isSegment ? 15_000 : 20_000);
 
-    const isM3u8 = decodedUrl.includes('.m3u') || 
+    const upstream = await fetchUpstream(decodedUrl, headers, timeout);
+
+    const isM3u8 = isM3u8Request || 
                    (upstream.headers['content-type'] || '').includes('mpegurl') ||
                    forceM3u8 === '1';
 
@@ -210,16 +266,41 @@ async function proxyHandler(req, res, next) {
       return;
     }
 
+    // Recopilar el cuerpo M3U8 y procesarlo
     res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+    res.setHeader('X-Cache', 'MISS');
     let body = '';
     upstream.data.on('data',  chunk => { body += chunk; });
     upstream.data.on('end',   () => {
-      res.end(rewriteM3u8(body, decodedUrl, '/proxy', decodedReferer));
+      const rewritten = rewriteM3u8(body, decodedUrl, '/proxy', decodedReferer);
+      // Guardar en caché solo manifiestos maestros (los que contienen otras listas)
+      if (rewritten.includes('#EXT-X-STREAM-INF') || rewritten.includes('#EXT-X-MEDIA')) {
+          setCache(decodedUrl, rewritten);
+      }
+      sendCompressed(req, res, rewritten);
     });
 
   } catch (err) {
     if (!res.headersSent) res.status(404).end();
   }
+}
+
+// ── MEJORA 1: Envío con compresión gzip si el cliente la soporta ──
+function sendCompressed(req, res, text) {
+    const acceptEncoding = req.headers['accept-encoding'] || '';
+    if (acceptEncoding.includes('gzip')) {
+        zlib.gzip(Buffer.from(text, 'utf8'), (err, compressed) => {
+            if (err) {
+                res.end(text);
+                return;
+            }
+            res.setHeader('Content-Encoding', 'gzip');
+            res.setHeader('Content-Length', compressed.length);
+            res.end(compressed);
+        });
+    } else {
+        res.end(text);
+    }
 }
 
 module.exports = { proxyHandler };
