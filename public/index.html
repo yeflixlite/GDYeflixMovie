@@ -366,7 +366,8 @@
     updateStatus('busy', 'Analizando proveedor y extrayendo...');
 
     try {
-      const minWait = new Promise(resolve => setTimeout(resolve, 4000));
+      const minWait = new Promise(resolve => setTimeout(resolve, 9000));
+      window.menuWaitPromise = new Promise(resolve => setTimeout(resolve, 8000));
       
       const data = await fetch(`/play?url=${encodeURIComponent(url)}&mode=${currentMode}`).then(r => r.json());
       if (data.error) throw new Error(data.error);
@@ -376,7 +377,7 @@
       // PASO 1: Empezar a cargar el video en segundo plano
       initPlayer(data.proxyUrl, data.type, false); // false = no mostrar todavía
 
-      // PASO 2: Esperar a que se cumplan los 4 segundos
+      // PASO 2: Esperar a que se cumplan los 9 segundos
       await minWait;
 
       // PASO 3: Mostrar el reproductor
@@ -474,7 +475,13 @@
     // Audio
     updateAudioMenu();
 
-    menu.style.display = 'flex';
+    if (window.menuWaitPromise) {
+      window.menuWaitPromise.then(() => {
+        if (hlsInstance) menu.style.display = 'flex';
+      });
+    } else {
+      menu.style.display = 'flex';
+    }
   }
 
   function updateAudioMenu() {
