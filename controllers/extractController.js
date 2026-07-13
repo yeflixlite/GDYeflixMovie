@@ -16,6 +16,7 @@ const voe                   = require('../services/voe');
 const dailymotion           = require('../services/dailymotion');
 const earvids               = require('../services/earvids');
 const vidhide               = require('../services/vidhide');
+const nupload               = require('../services/nupload');
 const generic               = require('../services/generic');
 const puppeteerExtractor    = require('../services/puppeteerExtractor');
 
@@ -29,6 +30,7 @@ const HTTP_SERVICE_MAP = {
   voe,
   dailymotion,
   earvids,
+  nupload,
   direct     : generic,
   unknown    : generic,
 };

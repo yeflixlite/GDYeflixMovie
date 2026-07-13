@@ -60,6 +60,9 @@ const PROVIDERS = {
     /bysesukior\.com/i,
     /398fitus\.com/i,
   ],
+  nupload: [
+    /nupload\.me/i,
+  ],
   earvids: [
     /earvids\.com/i,
   ],
@@ -126,6 +129,10 @@ function extractVideoId(url, provider) {
       case 'filemoon':
       case 'earvids': {
         const match = u.pathname.match(/\/(?:e|v|embed)\/([a-zA-Z0-9]+)/);
+        return match ? match[1] : u.pathname.split('/').filter(Boolean).pop();
+      }
+      case 'nupload': {
+        const match = u.pathname.match(/\/watch\/([a-zA-Z0-9]+)/);
         return match ? match[1] : u.pathname.split('/').filter(Boolean).pop();
       }
       case 'dailymotion': {
