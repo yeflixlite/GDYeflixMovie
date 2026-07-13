@@ -26,7 +26,8 @@ const DIRECT_DOMAINS = [
     'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro',
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
-    'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish'
+    'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish',
+    'ibra.lat', 'sv3.ibra.lat'
 ];
 
 // Agentes con Keep-Alive para rendimiento
@@ -196,7 +197,7 @@ async function fetchUpstream(url, headers, timeout) {
 
 async function proxyHandler(req, res, next) {
   try {
-    const { url, referer = '', forceM3u8 = '0' } = req.query;
+    const { url, referer = '', forceM3u8 = '0', wrapM3u8 = '' } = req.query;
 
     if (!url) return res.status(400).end();
 
@@ -272,12 +273,30 @@ async function proxyHandler(req, res, next) {
     let body = '';
     upstream.data.on('data',  chunk => { body += chunk; });
     upstream.data.on('end',   () => {
-      const rewritten = rewriteM3u8(body, decodedUrl, '/proxy', decodedReferer);
-      // Guardar en caché solo manifiestos maestros (los que contienen otras listas)
-      if (rewritten.includes('#EXT-X-STREAM-INF') || rewritten.includes('#EXT-X-MEDIA')) {
-          setCache(decodedUrl, rewritten);
+      let processed = rewriteM3u8(body, decodedUrl, '/proxy', decodedReferer);
+
+      // wrapM3u8: Si el m3u8 es una playlist de un solo nivel (sin #EXT-X-STREAM-INF),
+      // lo envolvemos en un master sintético para que el reproductor muestre la calidad correcta.
+      if (wrapM3u8 && processed.includes('#EXTINF') && !processed.includes('#EXT-X-STREAM-INF')) {
+        const levelName = decodeURIComponent(wrapM3u8);  // ej. "720p"
+        const resMap    = { '1080p': '1920x1080', '720p': '1280x720', '480p': '854x480', '360p': '640x360' };
+        const res2      = resMap[levelName] || '1280x720';
+        const bwMap     = { '1080p': '4000000', '720p': '2000000', '480p': '1000000', '360p': '500000' };
+        const bw        = bwMap[levelName] || '2000000';
+        // La playlist real ya está reescrita con rutas de proxy; la apuntamos directamente
+        const innerUrl  = `/proxy?url=${encodeURIComponent(decodedUrl)}&referer=${encodeURIComponent(decodedReferer)}&forceM3u8=1`;
+        processed = [
+          '#EXTM3U',
+          '#EXT-X-VERSION:3',
+          `#EXT-X-STREAM-INF:BANDWIDTH=${bw},RESOLUTION=${res2},NAME="${levelName}"`,
+          innerUrl,
+        ].join('\n');
+        setCache(decodedUrl + '?wrap=' + levelName, processed);
+      } else if (processed.includes('#EXT-X-STREAM-INF') || processed.includes('#EXT-X-MEDIA')) {
+        setCache(decodedUrl, processed);
       }
-      sendCompressed(req, res, rewritten);
+
+      sendCompressed(req, res, processed);
     });
 
   } catch (err) {

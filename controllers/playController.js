@@ -100,8 +100,11 @@ async function playHandler(req, res, next) {
     const encodedVideoUrl = encodeURIComponent(result.videoUrl);
     const encodedReferer  = encodeURIComponent(result.referer || '');
     const isHlsTxt        = /\.txt(\?|$)/i.test(result.videoUrl);
+    // wrapLevel: cuando el servicio indica que el m3u8 es single-level (sin #EXT-X-STREAM-INF)
+    // el proxy generará un master sintético con la calidad indicada (ej. "720p")
+    const wrapParam       = result.wrapLevel ? `&wrapM3u8=${encodeURIComponent(result.wrapLevel)}` : '';
     
-    const proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}`;
+    const proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
 
     return res.json({
       videoUrl : result.videoUrl,

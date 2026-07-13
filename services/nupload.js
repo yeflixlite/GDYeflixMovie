@@ -32,16 +32,18 @@ async function extract(url) {
         baseUrl += String.fromCharCode(num - magicNumber);
     });
 
-    // 5. Construir URL final
+    // 5. Construir URL final del m3u8 real
     const videoUrl = `${baseUrl}?s=${sesz}`;
 
     return {
       videoUrl,
       type: 'm3u8',
-      referer: url
+      referer: url,
+      // Indicar que es single-level para que el proxy envuelva con un master sintético
+      wrapLevel: '720p',
     };
   } catch (error) {
-    throw new Error(`Nuupload Extract Error: ${error.message}`);
+    throw new Error(`Nupload Extract Error: ${error.message}`);
   }
 }
 
