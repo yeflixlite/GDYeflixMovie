@@ -28,6 +28,7 @@ function getServiceMap() {
     voe         : require('../services/voe'),
     dailymotion : require('../services/dailymotion'),
     earvids     : require('../services/earvids'),
+    nupload     : require('../services/nupload'),
     direct      : require('../services/generic'),
     unknown     : require('../services/generic'),
   };
