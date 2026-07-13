@@ -26,8 +26,7 @@ const DIRECT_DOMAINS = [
     'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro',
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
-    'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish',
-    'ibra.lat', 'sv3.ibra.lat'
+    'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish'
 ];
 
 // Agentes con Keep-Alive para rendimiento
