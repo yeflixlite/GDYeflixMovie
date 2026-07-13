@@ -114,7 +114,9 @@ async function embedHandler(req, res, next) {
             const originalUrl = "${encodeURIComponent(url)}";
             
             try {
-                const minWait = new Promise(resolve => setTimeout(resolve, 4000));
+                const minWait = new Promise(resolve => setTimeout(resolve, 9000));
+                window.menuWaitPromise = new Promise(resolve => setTimeout(resolve, 8000));
+                
                 const data = await fetch('/play?url=' + originalUrl).then(r => r.json());
                 
                 if (data.error) throw new Error(data.error);
@@ -122,7 +124,7 @@ async function embedHandler(req, res, next) {
                 // Empezamos a cargar el video en segundo plano
                 startStreaming(data.proxyUrl, data.type, false);
 
-                // Esperamos los 4 segundos totales
+                // Esperamos los 9 segundos totales
                 await minWait;
 
                 // Mostramos el video
@@ -188,7 +190,13 @@ async function embedHandler(req, res, next) {
             // Audios (a veces no están listos en MANIFEST_PARSED, por eso revisamos)
             updateAudioUI();
             
-            menu.style.display = 'flex';
+            if (window.menuWaitPromise) {
+                window.menuWaitPromise.then(() => {
+                    if (hls) menu.style.display = 'flex';
+                });
+            } else {
+                menu.style.display = 'flex';
+            }
         }
 
         function updateAudioUI() {
