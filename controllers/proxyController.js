@@ -23,7 +23,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // Lista de dominios que permiten carga directa (CORS abierto o sin Referer estricto)
 const DIRECT_DOMAINS = [
     'voe', 'timmaybealready.com', 'charlestoughrace.com', 'reitshof.com', 'jenniferperformer.com',
-    'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro',
+    'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro', 'acek-cdn.com',
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
     'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish'
