@@ -104,7 +104,9 @@ async function playHandler(req, res, next) {
     // el proxy generará un master sintético con la calidad indicada (ej. "720p")
     const wrapParam       = result.wrapLevel ? `&wrapM3u8=${encodeURIComponent(result.wrapLevel)}` : '';
     
-    const proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
+    const proxyUrl = provider === 'vidhide' 
+      ? result.videoUrl 
+      : `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
 
     return res.json({
       videoUrl : result.videoUrl,
