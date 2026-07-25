@@ -23,7 +23,8 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // Lista de dominios que permiten carga directa (CORS abierto o sin Referer estricto)
 const DIRECT_DOMAINS = [
     'voe', 'timmaybealready.com', 'charlestoughrace.com', 'reitshof.com', 'jenniferperformer.com',
-    'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro', 'acek-cdn.com',
+    'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro', 
+    'acek-cdn.com', 'dramiyos-cdn.com', '-cdn.com', '.urlset', '/hls2/',
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
     'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish'
@@ -114,7 +115,7 @@ function rewriteM3u8(content, originalUrl, proxyBase, referer) {
       if (isAd) return abs; 
 
       // LÓGICA DE AHORRO: ¿Debemos saltarnos el proxy para este segmento?
-      const isSegment = abs.includes('.ts') || abs.includes('.m4s') || abs.includes('.mp4');
+      const isSegment = abs.includes('.ts') || abs.includes('.m4s') || abs.includes('.mp4') || abs.includes('/seg-') || abs.includes('.woff2');
       const canBeDirect = DIRECT_DOMAINS.some(d => abs.includes(d));
 
       if (isSegment && !PROXY_SEGMENTS && canBeDirect) {
