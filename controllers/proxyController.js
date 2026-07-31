@@ -20,14 +20,18 @@ const { getMediaHeaders } = require('../utils/browserHeaders');
 const PROXY_SEGMENTS = process.env.PROXY_SEGMENTS === 'true'; 
 const IS_PROD = process.env.NODE_ENV === 'production';
 
-// Lista de dominios que permiten carga directa (CORS abierto o sin Referer estricto)
+// Lista de dominios que permiten carga directa (CORS abierto sin IP-binding)
+// NOTA: StreamWish NO está aquí → sus segmentos pasan por el proxy para evitar
+//       inconsistencias entre móvil (IP operadora) y PC (IP residencial).
 const DIRECT_DOMAINS = [
+    // VOE: CORS abierto, sin IP-binding
     'voe', 'timmaybealready.com', 'charlestoughrace.com', 'reitshof.com', 'jenniferperformer.com',
+    // VidHide: los segmentos .ts los descarga el browser directamente (Data URI bypass)
     'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro', 
     'acek-cdn.com', 'dramiyos-cdn.com', '-cdn.com', '.urlset', '/hls2/',
+    // Otros CDNs sin IP-binding conocido
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
-    'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish'
 ];
 
 // Agentes con Keep-Alive para rendimiento
