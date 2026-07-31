@@ -127,10 +127,11 @@ async function embedHandler(req, res, next) {
                 // Esperamos los 9 segundos totales
                 await minWait;
 
-                // Mostramos el video
+                // Mostramos el video y entonces sí hacemos play
                 loader.style.opacity = '0';
                 setTimeout(() => loader.style.display = 'none', 500);
                 video.style.display = 'block';
+                video.play().catch(() => {});
 
             } catch (err) {
                 loader.style.display = 'none';
@@ -145,6 +146,7 @@ async function embedHandler(req, res, next) {
                 setTimeout(() => loader.style.display = 'none', 500);
                 video.style.display = 'block';
             } else {
+                // Oculto: solo cargamos y bufferizamos, el play() lo hace init() cuando el overlay se va
                 video.style.display = 'none';
             }
 
@@ -164,7 +166,11 @@ async function embedHandler(req, res, next) {
             } else {
                 video.src = url;
             }
-            video.play().catch(() => {});
+
+            // Solo hacemos play() ahora si el video es visible
+            if (showImmediately) {
+                video.play().catch(() => {});
+            }
         }
 
         function setupUI() {
