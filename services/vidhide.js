@@ -64,29 +64,29 @@ function tryDecodeEval(js) {
     return null;
 }
 
-function tryUnpack(js) {
-    // Unpacker muy básico para p,a,c,k,e,d
+function tryUnpack(js, baseOrigin) {
+    // Unpacker para p,a,c,k,e,d con soporte de URLs relativas
     if (!js.includes('p,a,c,k,e,d')) return null;
     try {
-        const pMatch = js.match(/return\s*p}\s*\(\s*['"](.*?)['"]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*['"](.*?)['"]\.split/);
+        const pMatch = js.match(/}\s*\(\s*'([\s\S]+?)',\s*(\d+),\s*(\d+),\s*'([\s\S]+?)'\.split\('\|'\)\)\)/);
         if (pMatch) {
             let p = pMatch[1];
             const a = parseInt(pMatch[2]);
-            const c = parseInt(pMatch[3]);
+            let c = parseInt(pMatch[3]);
             const k = pMatch[4].split('|');
             
-            let e = function(c) {
-                return (c < a ? '' : e(parseInt(c / a))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
-            };
+            const eFunc = (n) => (n < a ? '' : eFunc(parseInt(n / a))) + ((n = n % a) > 35 ? String.fromCharCode(n + 29) : n.toString(36));
             
-            let c_counter = c;
-            while (c_counter--) {
-                if (k[c_counter]) {
-                    p = p.replace(new RegExp('\\b' + e(c_counter) + '\\b', 'g'), k[c_counter]);
-                }
+            while (c--) {
+                if (k[c]) p = p.replace(new RegExp('\\b' + eFunc(c) + '\\b', 'g'), k[c]);
             }
             
-            const urlMatch = p.match(/https?:\/\/[^\s"'<>]+(?:\.m3u8|master\.txt|playlist\.txt|\/hls\/)[^\s"'<>]*/i);
+            // Prioridad 1: URL relativa /stream/ (local, sin expiración)
+            const relStreamMatch = p.match(/["'](\/stream\/[^"'\\]+\.m3u8[^"'\\]*)["']/i);
+            if (relStreamMatch && baseOrigin) return baseOrigin + relStreamMatch[1];
+
+            // Prioridad 2: URL absoluta m3u8
+            const urlMatch = p.match(/https?:\/\/[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*/i);
             if (urlMatch) return urlMatch[0];
         }
     } catch(e) {}
@@ -220,9 +220,10 @@ async function extract(url) {
         return result;
     }
 
-    const unpacked = tryUnpack(scripts);
+    // Pasamos finalOrigin para que las URLs relativas /stream/ se resuelvan correctamente
+    const unpacked = tryUnpack(scripts, finalOrigin);
     if (unpacked) {
-        const result = { videoUrl: addTokens(unpacked, search), type: guessType(unpacked), referer: finalOrigin };
+        const result = { videoUrl: unpacked, type: guessType(unpacked), referer: finalOrigin };
         extractionCache.set(cacheKey, { timestamp: Date.now(), result });
         return result;
     }
