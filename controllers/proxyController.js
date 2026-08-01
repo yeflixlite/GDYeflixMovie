@@ -28,7 +28,7 @@ const DIRECT_DOMAINS = [
     'voe', 'timmaybealready.com', 'charlestoughrace.com', 'reitshof.com', 'jenniferperformer.com',
     // VidHide: los segmentos .ts los descarga el browser directamente (Data URI bypass)
     'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro', 
-    'acek-cdn.com', 'dramiyos-cdn.com', '-cdn.com', '.urlset', '/hls2/',
+    'acek-cdn.com', 'dramiyos-cdn.com',
     // Otros CDNs sin IP-binding conocido
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
