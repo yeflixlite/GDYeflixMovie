@@ -101,7 +101,7 @@ async function embedHandler(req, res, next) {
         </div>
 
         <div id="error" class="error-msg"></div>
-        <video id="player" controls playsinline crossorigin="anonymous"></video>
+        <video id="player" controls playsinline></video>
     </div>
 
     <script>
