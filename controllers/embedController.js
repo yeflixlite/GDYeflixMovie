@@ -46,13 +46,13 @@ async function embedHandler(req, res, next) {
         }
         .logo-yeflix {
             font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            color: #E50914; /* Rojo Netflix */
+            color: #E50914;
             font-size: 42px;
             font-weight: 900;
             letter-spacing: 2px;
             margin-bottom: 30px;
             text-transform: uppercase;
-            transform: scaleY(1.1); /* Efecto condensado estilo Netflix */
+            transform: scaleY(1.1);
         }
         .netflix-spinner {
             width: 60px; height: 60px;
@@ -67,6 +67,30 @@ async function embedHandler(req, res, next) {
             font-size: 13px;
             margin-top: 20px;
             font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+
+        /* Buffering overlay semitransparente (aparece DESPUÉS del loader) */
+        #buffering {
+            position: absolute; inset: 0; z-index: 50;
+            background: rgba(0,0,0,0.55);
+            display: none;
+            flex-direction: column;
+            align-items: center; justify-content: center;
+            transition: opacity 0.3s;
+        }
+        #buffering.visible { display: flex; }
+        .buf-spinner {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .buf-text {
+            color: rgba(255,255,255,0.7);
+            font-size: 12px;
+            margin-top: 14px;
             letter-spacing: 0.5px;
         }
         
@@ -101,14 +125,29 @@ async function embedHandler(req, res, next) {
         </div>
 
         <div id="error" class="error-msg"></div>
+        <div id="buffering">
+            <div class="buf-spinner"></div>
+            <div class="buf-text">Buffering...</div>
+        </div>
         <video id="player" controls playsinline></video>
     </div>
 
     <script>
         let hls = null;
-        const video = document.getElementById('player');
-        const loader = document.getElementById('loader');
-        const errorView = document.getElementById('error');
+        const video      = document.getElementById('player');
+        const loader     = document.getElementById('loader');
+        const buffering  = document.getElementById('buffering');
+        const errorView  = document.getElementById('error');
+
+        // Muestra/oculta el spinner de buffering (post-loader)
+        function showBuffering() { buffering.classList.add('visible'); }
+        function hideBuffering() { buffering.classList.remove('visible'); }
+
+        // Eventos del video para controlar el buffering overlay
+        video.addEventListener('canplay',    hideBuffering);
+        video.addEventListener('playing',    hideBuffering);
+        video.addEventListener('waiting',    showBuffering);
+        video.addEventListener('stalled',    showBuffering);
 
         async function init() {
             const originalUrl = "${encodeURIComponent(url)}";
@@ -127,10 +166,17 @@ async function embedHandler(req, res, next) {
                 // Esperamos los 9 segundos totales
                 await minWait;
 
-                // Mostramos el video y entonces sí hacemos play
+                // Ocultamos el loader principal (YEFLIX negro)
                 loader.style.opacity = '0';
                 setTimeout(() => loader.style.display = 'none', 500);
+
+                // Mostramos el video y, si aún no tiene datos, el spinner de buffering
                 video.style.display = 'block';
+                if (video.readyState < 3) {
+                    // Video aún no tiene suficientes datos → mostrar buffering overlay
+                    showBuffering();
+                }
+                // Intentamos hacer play; si el video no está listo, esperará al canplay
                 video.play().catch(() => {});
 
             } catch (err) {
