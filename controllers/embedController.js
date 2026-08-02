@@ -190,8 +190,10 @@ async function embedHandler(req, res, next) {
             if (type === 'm3u8' && Hls.isSupported()) {
                 hls = new Hls({
                     enableWorker: true,
+                    progressive: true,         // CLAVE: Reproduce mientras descarga el segmento!
+                    lowLatencyMode: true,      // Optimiza para streaming con baja latencia
                     // Arrancar lo antes posible: poca calidad inicial, poco buffer
-                    startLevel: -1,           // Auto: HLS.js elige la calidad m\u00e1s r\u00e1pida
+                    startLevel: -1,            // Auto: HLS.js elige la calidad m\u00e1s r\u00e1pida
                     abrEwmaDefaultEstimate: 500000, // Estima 500kbps al inicio (conservador)
                     maxBufferLength: 8,        // Solo 8s de buffer para arrancar r\u00e1pido
                     maxMaxBufferLength: 30,    // L\u00edmite m\u00e1ximo de buffer en reproducci\u00f3n
