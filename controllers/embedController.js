@@ -160,24 +160,19 @@ async function embedHandler(req, res, next) {
                 
                 if (data.error) throw new Error(data.error);
                 
-                // Empezamos a cargar el video en segundo plano
-                startStreaming(data.proxyUrl, data.type, false);
+                // Arrancamos el video MUTED en segundo plano desde ya
+                // Así lleva varios segundos de buffer cuando el overlay desaparece
+                startStreaming(data.proxyUrl, data.type);
 
-                // Esperamos los 9 segundos totales
+                // Esperamos los 9 segundos
                 await minWait;
 
-                // Ocultamos el loader principal (YEFLIX negro)
+                // Desmutear y mostrar el video (ya lleva segundos reproduciéndose)
                 loader.style.opacity = '0';
                 setTimeout(() => loader.style.display = 'none', 500);
-
-                // Mostramos el video y, si aún no tiene datos, el spinner de buffering
                 video.style.display = 'block';
-                if (video.readyState < 3) {
-                    // Video aún no tiene suficientes datos → mostrar buffering overlay
-                    showBuffering();
-                }
-                // Intentamos hacer play; si el video no está listo, esperará al canplay
-                video.play().catch(() => {});
+                video.muted = false;
+                hideBuffering();
 
             } catch (err) {
                 loader.style.display = 'none';
@@ -186,15 +181,11 @@ async function embedHandler(req, res, next) {
             }
         }
 
-        function startStreaming(url, type, showImmediately = true) {
-            if (showImmediately) {
-                loader.style.opacity = '0';
-                setTimeout(() => loader.style.display = 'none', 500);
-                video.style.display = 'block';
-            } else {
-                // Oculto: solo cargamos y bufferizamos, el play() lo hace init() cuando el overlay se va
-                video.style.display = 'none';
-            }
+        function startStreaming(url, type) {
+            // El video siempre arranca OCULTO y MUTED para reproducir en segundo plano
+            // init() lo muestra y desmutea después de los 9 segundos
+            video.style.display = 'none';
+            video.muted = true;
 
             if (type === 'm3u8' && Hls.isSupported()) {
                 hls = new Hls({ 
@@ -207,14 +198,14 @@ async function embedHandler(req, res, next) {
                 });
                 hls.loadSource(url);
                 hls.attachMedia(video);
-                hls.on(Hls.Events.MANIFEST_PARSED, setupUI);
+                hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    setupUI();
+                    // Arrancar reproduccion muted inmediatamente
+                    video.play().catch(() => {});
+                });
                 hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, updateAudioUI);
             } else {
                 video.src = url;
-            }
-
-            // Solo hacemos play() ahora si el video es visible
-            if (showImmediately) {
                 video.play().catch(() => {});
             }
         }
