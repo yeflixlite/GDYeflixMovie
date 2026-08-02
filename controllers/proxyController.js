@@ -24,14 +24,19 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // NOTA: StreamWish NO está aquí → sus segmentos pasan por el proxy para evitar
 //       inconsistencias entre móvil (IP operadora) y PC (IP residencial).
 const DIRECT_DOMAINS = [
-    // VOE: CORS genuinamente abierto, sin IP-binding → segmentos directos
+    // VOE: CORS genuinamente abierto
     'voe', 'timmaybealready.com', 'charlestoughrace.com', 'reitshof.com', 'jenniferperformer.com',
-    // Otros CDNs sin CORS ni IP-binding conocido
-    'doodstream.com', 'dood.re', 
+    // StreamWish: CDN con CORS abierto → segmentos directos para máxima velocidad
+    'streamwish', 'swqcdn', 'sb-cdn', 'wish', 'sfastwish', 'hgcloud', 'mwish',
+    'playnixes.com', 'hglamioz.com', 'medixiru.com',
+    // VidHide MIRRORS: cuando el m3u8 usa /stream/ del mirror, los segmentos
+    // los sirve el mismo mirror con CORS abierto (no el CDN acek/dramiyos)
+    'minochinos.com', 'callistanise.com', 'vsharea.com', 'vidhidepro.com', 'vidhide.com',
+    // Otros CDNs sin restricciones conocidas
+    'doodstream.com', 'dood.re',
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
-    // NOTA: VidHide (acek-cdn.com, dramiyos-cdn.com) y StreamWish NO están aquí.
-    //       Sus CDNs bloquean segmentos con CORS 403 si el navegador los pide directo.
-    //       Todos sus segmentos pasan por el proxy de Vercel.
+    // NOTA: acek-cdn.com y dramiyos-cdn.com NO están aquí → bloquean CORS del browser.
+    //       Sus segmentos siempre pasan por el proxy de Vercel.
 ];
 
 // Agentes con Keep-Alive para rendimiento
