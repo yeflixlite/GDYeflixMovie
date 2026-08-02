@@ -104,71 +104,11 @@ async function playHandler(req, res, next) {
     // el proxy generará un master sintético con la calidad indicada (ej. "720p")
     const wrapParam       = result.wrapLevel ? `&wrapM3u8=${encodeURIComponent(result.wrapLevel)}` : '';
     
-    let proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
+    const proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
 
-    // VIDHIDE BYPASS: Fetch and inline playlists to avoid CORS & IP Mismatch on Serverless
-    if (provider === 'vidhide') {
-      try {
-        const axios = require('axios');
-        const { getMediaHeaders } = require('../utils/browserHeaders');
-        const hds = getMediaHeaders(result.referer, new URL(result.referer || result.videoUrl).origin);
-        
-        // Fetch Master
-        const masterRes = await axios.get(result.videoUrl, { headers: hds, timeout: 5000 });
-        let masterContent = masterRes.data;
-        const masterBase = result.videoUrl.substring(0, result.videoUrl.lastIndexOf('/') + 1);
-        
-        let lines = masterContent.split('\n');
-        let newMaster = [];
-        let promises = [];
-        let promiseLines = [];
-
-        for (let i = 0; i < lines.length; i++) {
-            let line = lines[i].trim();
-            if (!line) continue;
-            if (line.startsWith('#')) {
-                newMaster.push(line);
-            } else {
-                // Sub-playlist URL
-                const subUrl = line.startsWith('http') ? line : masterBase + line;
-                // Fetch sub-playlist concurrently
-                const p = axios.get(subUrl, { headers: hds, timeout: 5000 }).then(subRes => {
-                    const subBase = subUrl.substring(0, subUrl.lastIndexOf('/') + 1);
-                    const rewrittenSub = subRes.data.replace(/^(?!#)(.+)$/gm, (sl) => {
-                        let trim = sl.trim();
-                        if (!trim) return trim;
-                        if (trim.startsWith('http')) return trim;
-                        return subBase + trim;
-                    });
-                    return 'data:application/vnd.apple.mpegurl;base64,' + Buffer.from(rewrittenSub).toString('base64');
-                });
-                promises.push(p);
-                promiseLines.push(newMaster.length);
-                newMaster.push(''); // placeholder
-            }
-        }
-
-        if (promises.length > 0) {
-            const dataUris = await Promise.all(promises);
-            for (let i = 0; i < dataUris.length; i++) {
-                newMaster[promiseLines[i]] = dataUris[i];
-            }
-            proxyUrl = 'data:application/vnd.apple.mpegurl;base64,' + Buffer.from(newMaster.join('\n')).toString('base64');
-        } else if (masterContent.includes('#EXTINF')) {
-             // It's a single level playlist, just rewrite segments
-             const rewrittenMaster = masterContent.replace(/^(?!#)(.+)$/gm, (sl) => {
-                  let trim = sl.trim();
-                  if (!trim) return trim;
-                  if (trim.startsWith('http')) return trim;
-                  return masterBase + trim;
-             });
-             proxyUrl = 'data:application/vnd.apple.mpegurl;base64,' + Buffer.from(rewrittenMaster).toString('base64');
-        }
-      } catch (err) {
-        console.error('[Vidhide Inline Failed]', err.message);
-        // Fallback to proxyUrl if it fails, which will probably 404/504 but it's a fallback
-      }
-    }
+    // proxyUrl apunta a /proxy?url=... el cual reescribe TODOS los segmentos
+    // a través de Vercel. Funciona para todos los proveedores incluyendo
+    // VidHide (acek-cdn.com, dramiyos-cdn.com), StreamWish y demás.
 
     return res.json({
       videoUrl : result.videoUrl,
