@@ -188,13 +188,19 @@ async function embedHandler(req, res, next) {
             video.muted = true;
 
             if (type === 'm3u8' && Hls.isSupported()) {
-                hls = new Hls({ 
+                hls = new Hls({
                     enableWorker: true,
-                    maxBufferLength: 60,
-                    maxMaxBufferLength: 120,
-                    maxBufferSize: 60 * 1024 * 1024,
+                    // Arrancar lo antes posible: poca calidad inicial, poco buffer
+                    startLevel: -1,           // Auto: HLS.js elige la calidad m\u00e1s r\u00e1pida
+                    abrEwmaDefaultEstimate: 500000, // Estima 500kbps al inicio (conservador)
+                    maxBufferLength: 8,        // Solo 8s de buffer para arrancar r\u00e1pido
+                    maxMaxBufferLength: 30,    // L\u00edmite m\u00e1ximo de buffer en reproducci\u00f3n
+                    maxBufferSize: 20 * 1024 * 1024,
                     nudgeOffset: 0.1,
-                    nudgeMaxRetries: 5
+                    nudgeMaxRetries: 10,
+                    fragLoadingMaxRetry: 6,    // M\u00e1s reintentos si el proxy tarda
+                    manifestLoadingMaxRetry: 4,
+                    levelLoadingMaxRetry: 4,
                 });
                 hls.loadSource(url);
                 hls.attachMedia(video);
