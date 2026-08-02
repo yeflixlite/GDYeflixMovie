@@ -24,14 +24,14 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // NOTA: StreamWish NO está aquí → sus segmentos pasan por el proxy para evitar
 //       inconsistencias entre móvil (IP operadora) y PC (IP residencial).
 const DIRECT_DOMAINS = [
-    // VOE: CORS abierto, sin IP-binding
+    // VOE: CORS genuinamente abierto, sin IP-binding → segmentos directos
     'voe', 'timmaybealready.com', 'charlestoughrace.com', 'reitshof.com', 'jenniferperformer.com',
-    // VidHide: los segmentos .ts los descarga el browser directamente (Data URI bypass)
-    'vidhide', 'minochinos', 'vsharea', 'callistanise', 'vidhidepro', 
-    'acek-cdn.com', 'dramiyos-cdn.com',
-    // Otros CDNs sin IP-binding conocido
+    // Otros CDNs sin CORS ni IP-binding conocido
     'doodstream.com', 'dood.re', 
     'filemoon.sx', 'googleusercontent.com', 'cloudfront.net',
+    // NOTA: VidHide (acek-cdn.com, dramiyos-cdn.com) y StreamWish NO están aquí.
+    //       Sus CDNs bloquean segmentos con CORS 403 si el navegador los pide directo.
+    //       Todos sus segmentos pasan por el proxy de Vercel.
 ];
 
 // Agentes con Keep-Alive para rendimiento
