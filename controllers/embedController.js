@@ -545,7 +545,10 @@ async function embedHandler(req, res, next) {
         }
     }
 
-    wrap.addEventListener('mousemove', showControls);
+    wrap.addEventListener('mousemove', (e) => {
+        if (window.matchMedia("(pointer: coarse)").matches) return;
+        showControls();
+    });
     wrap.addEventListener('touchstart', (e) => {
         if (e.target !== clickArea) showControls();
     }, { passive: true });
