@@ -784,8 +784,6 @@ async function embedHandler(req, res, next) {
 
     // ── Inicialización del reproductor ─────────────────────────
     function startStreaming(streamUrl, type) {
-        video.muted = true;
-
         if (type === 'm3u8' && Hls.isSupported()) {
             hls = new Hls({
                 enableWorker:            true,
@@ -807,7 +805,6 @@ async function embedHandler(req, res, next) {
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 buildQualityUI();
-                video.play().catch(()=>{});
             });
 
             hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, () => {
@@ -826,10 +823,8 @@ async function embedHandler(req, res, next) {
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             // Safari nativo
             video.src = streamUrl;
-            video.play().catch(()=>{});
         } else {
             video.src = streamUrl;
-            video.play().catch(()=>{});
         }
     }
 
@@ -853,7 +848,6 @@ async function embedHandler(req, res, next) {
             loader.classList.add('hidden');
             setTimeout(() => { loader.style.display = 'none'; }, 600);
 
-            video.muted = false;
             buffering.classList.remove('visible');
             showControls();
 
