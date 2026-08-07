@@ -106,11 +106,70 @@ async function playHandler(req, res, next) {
     
     let proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
 
-    // Si el proveedor tiene CORS abierto y bloquea IPs de Vercel (ej. Streamwish)
-    // le damos al reproductor directamente la URL real, saltándonos el proxy por completo.
-    const directProviders = ['streamwish', 'voe', 'filemoon', 'hgcloud'];
-    if (directProviders.includes(provider)) {
-        proxyUrl = result.videoUrl;
+    // INLINE BYPASS: Para Vidhide y Streamwish, descargamos el m3u8 en la misma función (misma IP)
+    // y lo enviamos como base64 al reproductor. Esto evita el CORS y el bloqueo por cambio de IP en Vercel.
+    const inlineProviders = ['vidhide', 'streamwish', 'hgcloud'];
+    if (inlineProviders.includes(provider)) {
+      try {
+        const axios = require('axios');
+        const { getMediaHeaders } = require('../utils/browserHeaders');
+        const hds = getMediaHeaders(result.referer, new URL(result.referer || result.videoUrl).origin);
+        
+        // Fetch Master
+        const masterRes = await axios.get(result.videoUrl, { headers: hds, timeout: 5000 });
+        let masterContent = masterRes.data;
+        const masterBase = result.videoUrl.substring(0, result.videoUrl.lastIndexOf('/') + 1);
+        
+        let lines = masterContent.split('\n');
+        let newMaster = [];
+        let promises = [];
+        let promiseLines = [];
+
+        for (let i = 0; i < lines.length; i++) {
+            let line = lines[i].trim();
+            if (!line) continue;
+            if (line.startsWith('#')) {
+                newMaster.push(line);
+            } else {
+                // Sub-playlist URL
+                const subUrl = line.startsWith('http') ? line : masterBase + line;
+                // Fetch sub-playlist concurrently
+                const p = axios.get(subUrl, { headers: hds, timeout: 5000 }).then(subRes => {
+                    const subBase = subUrl.substring(0, subUrl.lastIndexOf('/') + 1);
+                    const rewrittenSub = subRes.data.replace(/^(?!#)(.+)$/gm, (sl) => {
+                        let trim = sl.trim();
+                        if (!trim) return trim;
+                        if (trim.startsWith('http')) return trim;
+                        return subBase + trim;
+                    });
+                    return 'data:application/vnd.apple.mpegurl;base64,' + Buffer.from(rewrittenSub).toString('base64');
+                });
+                promises.push(p);
+                promiseLines.push(newMaster.length);
+                newMaster.push(''); // placeholder
+            }
+        }
+
+        if (promises.length > 0) {
+            const dataUris = await Promise.all(promises);
+            for (let i = 0; i < dataUris.length; i++) {
+                newMaster[promiseLines[i]] = dataUris[i];
+            }
+            proxyUrl = 'data:application/vnd.apple.mpegurl;base64,' + Buffer.from(newMaster.join('\n')).toString('base64');
+        } else if (masterContent.includes('#EXTINF')) {
+             // It's a single level playlist, just rewrite segments
+             const rewrittenMaster = masterContent.replace(/^(?!#)(.+)$/gm, (sl) => {
+                  let trim = sl.trim();
+                  if (!trim) return trim;
+                  if (trim.startsWith('http')) return trim;
+                  return masterBase + trim;
+             });
+             proxyUrl = 'data:application/vnd.apple.mpegurl;base64,' + Buffer.from(rewrittenMaster).toString('base64');
+        }
+      } catch (err) {
+        console.error('[Inline Bypass Failed]', err.message);
+        // Fallback al proxy normal si falla
+      }
     }
 
     return res.json({
