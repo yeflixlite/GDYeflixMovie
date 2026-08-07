@@ -838,8 +838,32 @@ async function embedHandler(req, res, next) {
             const data = await fetch('/play?url=' + originalUrl).then(r => r.json());
             if (data.error) throw new Error(data.error);
 
+            let finalUrl = data.proxyUrl;
+
+            // Si es un Data URI masivo (base64 m3u8), lo convertimos a un Blob Object URL 
+            // manualmente para no saturar los límites de longitud de URL del navegador.
+            if (finalUrl && finalUrl.startsWith('data:')) {
+                try {
+                    const parts = finalUrl.split(',');
+                    const mimeMatch = parts[0].match(/:(.*?);/);
+                    const mime = mimeMatch ? mimeMatch[1] : 'application/vnd.apple.mpegurl';
+                    const b64Data = parts[1];
+                    
+                    const byteCharacters = atob(b64Data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray], { type: mime });
+                    finalUrl = URL.createObjectURL(blob);
+                } catch(e) {
+                    console.error("Error decodificando Data URI a Blob", e);
+                }
+            }
+
             // Arrancar streaming en segundo plano (muted) mientras el loader está visible
-            startStreaming(data.proxyUrl, data.type);
+            startStreaming(finalUrl, data.type);
 
             // Esperar los 9 segundos mínimos
             await minWait;
