@@ -546,7 +546,9 @@ async function embedHandler(req, res, next) {
     }
 
     wrap.addEventListener('mousemove', showControls);
-    wrap.addEventListener('touchstart', showControls, { passive: true });
+    wrap.addEventListener('touchstart', (e) => {
+        if (e.target !== clickArea) showControls();
+    }, { passive: true });
 
     // ── Formato de tiempo ──────────────────────────────────────
     function fmt(s) {
