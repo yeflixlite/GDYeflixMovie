@@ -104,11 +104,14 @@ async function playHandler(req, res, next) {
     // el proxy generará un master sintético con la calidad indicada (ej. "720p")
     const wrapParam       = result.wrapLevel ? `&wrapM3u8=${encodeURIComponent(result.wrapLevel)}` : '';
     
-    const proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
+    let proxyUrl = `/proxy?url=${encodedVideoUrl}&referer=${encodedReferer}${isHlsTxt ? '&forceM3u8=1' : ''}${wrapParam}`;
 
-    // proxyUrl apunta a /proxy?url=... el cual reescribe TODOS los segmentos
-    // a través de Vercel. Funciona para todos los proveedores incluyendo
-    // VidHide (acek-cdn.com, dramiyos-cdn.com), StreamWish y demás.
+    // Si el proveedor tiene CORS abierto y bloquea IPs de Vercel (ej. Streamwish)
+    // le damos al reproductor directamente la URL real, saltándonos el proxy por completo.
+    const directProviders = ['streamwish', 'voe', 'filemoon', 'hgcloud'];
+    if (directProviders.includes(provider)) {
+        proxyUrl = result.videoUrl;
+    }
 
     return res.json({
       videoUrl : result.videoUrl,
