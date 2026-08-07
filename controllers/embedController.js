@@ -401,9 +401,19 @@ async function embedHandler(req, res, next) {
         <!-- Fila de botones -->
         <div id="controls-row">
 
+            <!-- Retroceder 10s -->
+            <button class="ctrl-btn" id="rewind-btn" title="Retroceder 10s">
+                <svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+            </button>
+
             <!-- Play/Pause -->
             <button class="ctrl-btn" id="playpause-btn" title="Reproducir/Pausar">
                 <svg id="pp-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            
+            <!-- Adelantar 10s -->
+            <button class="ctrl-btn" id="forward-btn" title="Adelantar 10s">
+                <svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
             </button>
 
             <!-- Volumen -->
@@ -494,6 +504,8 @@ async function embedHandler(req, res, next) {
     const playRipple    = document.getElementById('play-ripple');
     const rippleIcon    = document.getElementById('ripple-icon');
     const clickArea     = document.getElementById('click-area');
+    const rewindBtn     = document.getElementById('rewind-btn');
+    const forwardBtn    = document.getElementById('forward-btn');
     const ppBtn         = document.getElementById('playpause-btn');
     const ppIcon        = document.getElementById('pp-icon');
     const muteBtn       = document.getElementById('mute-btn');
@@ -611,15 +623,40 @@ async function embedHandler(req, res, next) {
         }, 400);
     }
 
-    clickArea.addEventListener('click', () => {
+    clickArea.addEventListener('click', (e) => {
+        // En móviles (pantallas touch), tocar el centro oculta/muestra controles
+        // en lugar de pausar, para evitar pausar por accidente
+        if (window.matchMedia("(pointer: coarse)").matches) {
+            if (wrap.classList.contains('controls-visible')) {
+                wrap.classList.remove('controls-visible');
+                clearTimeout(hideTimer);
+            } else {
+                showControls();
+            }
+            return;
+        }
+        
+        // En PC (ratón), hace play/pause
         const wasPaused = video.paused;
         togglePlay();
         showRipple(!wasPaused);
     });
 
+    rewindBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        video.currentTime = Math.max(0, video.currentTime - 10);
+        showControls();
+    });
+
     ppBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         togglePlay();
+    });
+
+    forwardBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        video.currentTime = Math.min(video.duration || 0, video.currentTime + 10);
+        showControls();
     });
 
     video.addEventListener('play',  () => { ppIcon.innerHTML = ICON_PAUSE;  showControls(); });
@@ -661,9 +698,17 @@ async function embedHandler(req, res, next) {
     fsBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         if (!document.fullscreenElement) {
-            wrap.requestFullscreen().catch(()=>{});
+            wrap.requestFullscreen().then(() => {
+                if (screen.orientation && screen.orientation.lock) {
+                    screen.orientation.lock('landscape').catch(()=>{});
+                }
+            }).catch(()=>{});
         } else {
-            document.exitFullscreen().catch(()=>{});
+            document.exitFullscreen().then(() => {
+                if (screen.orientation && screen.orientation.unlock) {
+                    screen.orientation.unlock();
+                }
+            }).catch(()=>{});
         }
     });
 
